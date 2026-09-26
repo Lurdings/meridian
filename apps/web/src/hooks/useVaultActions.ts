@@ -68,6 +68,17 @@ export function useVaultActions() {
     if (!publicKey || !passphrase) return false;
     setIsDepositing(true);
     try {
+      // Snapshot the cached positions before any async work so the optimistic
+      // update and the poll share a baseline, the same shape as `withdraw`.
+      const positionsBefore = queryClient.getQueryData<ApiPosition[]>([
+        "positions",
+        publicKey,
+      ]);
+      const matchedBefore = positionsBefore?.find((p) => p.vaultId === vaultId);
+      const sharesBefore = matchedBefore?.shares ?? Infinity;
+      const depositedBefore = matchedBefore?.deposited ?? 0;
+      const depositAmount = parseFloat(amount);
+
       // Price the floor before anything that costs a signature, so a vault
       // state outage fails the deposit outright instead of leaving it to
       // submit unprotected. Prefer an explicit floor (tests / callers), then
@@ -114,10 +125,34 @@ export function useVaultActions() {
         riskAcknowledged: true,
       });
       await signAndSubmit(xdr);
-      queryClient.invalidateQueries({ queryKey: ["positions", publicKey] });
+
       // Without this, the vault panel's TVL/APY keep serving their cached
       // value for up to staleTime (5 min) after a deposit actually lands.
       queryClient.invalidateQueries({ queryKey: ["vaults"] });
+
+      // Optimistic update: raise the position in-place so the position card
+      // reflects the deposit immediately instead of waiting for the async
+      // balance/indexer to catch up. Skipped when there is no cached entry to
+      // update — we won't fabricate a position we never had.
+      if (matchedBefore && Number.isFinite(depositAmount)) {
+        queryClient.setQueryData(
+          ["positions", publicKey],
+          (positionsBefore ?? []).map((p) =>
+            p === matchedBefore
+              ? {
+                  ...p,
+                  shares: sharesBefore + depositAmount,
+                  deposited: depositedBefore + depositAmount,
+                }
+              : p
+          )
+        );
+      }
+
+      // Hand off to position polling - it re-checks every 3s, stops once the
+      // live share count rises above sharesBefore, and gives up after 30s.
+      startPolling(vaultId, sharesBefore, "increase");
+
       push("success", `${t("vaultActions.deposited")} ${amount} ${asset}`);
       return true;
     } catch (err) {
@@ -208,7 +243,7 @@ export function useVaultActions() {
       // Hand off to position polling - it re-checks every 3s, stops once
       // this withdrawal's live share count drops below sharesBefore, and
       // gives up after 30s.
-      startPolling(vaultId, sharesBefore);
+      startPolling(vaultId, sharesBefore, "decrease");
 
       push("success", `${t("vaultActions.withdrew")} ${shares} ${asset}`);
       return true;
