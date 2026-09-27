@@ -83,13 +83,27 @@ export function useVaultActions() {
       // balance/indexer to catch up. Skipped when there is no cached entry to
       // update — we won't fabricate a position we never had.
       if (matchedBefore && Number.isFinite(depositAmount)) {
+        // A vault share is not one USDC. Once yield accrues the share
+        // price rises above 1.0, so `depositAmount` USDC mints fewer
+        // than `depositAmount` shares — crediting the raw amount would
+        // overstate the position for the whole optimistic window.
+        // Derive the implied share price from the cached position
+        // (`deposited / shares`) and convert through it, falling back to
+        // 1:1 only when that ratio is unusable (no prior shares or no
+        // prior deposit to derive a price from).
+        const impliedSharePrice =
+          Number.isFinite(sharesBefore) && sharesBefore > 0 && depositedBefore > 0
+            ? depositedBefore / sharesBefore
+            : 1;
+        const sharesMinted = depositAmount / impliedSharePrice;
+
         queryClient.setQueryData(
           ["positions", publicKey],
           (positionsBefore ?? []).map((p) =>
             p === matchedBefore
               ? {
                   ...p,
-                  shares: sharesBefore + depositAmount,
+                  shares: sharesBefore + sharesMinted,
                   deposited: depositedBefore + depositAmount,
                 }
               : p
