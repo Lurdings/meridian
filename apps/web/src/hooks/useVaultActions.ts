@@ -144,7 +144,9 @@ export function useVaultActions() {
         // 1:1 only when that ratio is unusable (no prior shares or no
         // prior deposit to derive a price from).
         const impliedSharePrice =
-          Number.isFinite(sharesBefore) && sharesBefore > 0 && depositedBefore > 0
+          Number.isFinite(sharesBefore) &&
+          sharesBefore > 0 &&
+          depositedBefore > 0
             ? depositedBefore / sharesBefore
             : 1;
         const sharesMinted = depositAmount / impliedSharePrice;
