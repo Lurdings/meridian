@@ -287,6 +287,34 @@ describe("useVaultActions — deposit", () => {
     expect(updated[1]).toBe(cached[1]);
   });
 
+  it("converts the deposit through the implied share price when deposited differs from shares", async () => {
+    // 100 shares backed by 120 USDC -> implied share price 1.2, so a 10 USDC
+    // deposit mints 10 / 1.2 = 8.333… shares. A raw `shares + amount` (110)
+    // or an inverted `amount * impliedSharePrice` (112) both fail this.
+    const cached = [
+      { vaultId: "blend-usdc-fixed", shares: 100, deposited: 120 },
+    ];
+    getQueryData.mockReturnValueOnce(cached);
+
+    const { result } = renderHook(() => useVaultActions());
+
+    await act(async () => {
+      await result.current.deposit(
+        "10",
+        "blend-usdc-fixed",
+        "USDC",
+        undefined,
+        true
+      );
+    });
+
+    const [, updated] = setQueryData.mock.calls[0] as [unknown, typeof cached];
+    expect(updated[0].shares).toBeCloseTo(100 + 10 / 1.2, 10);
+    expect(updated[0].shares).not.toBe(110);
+    expect(updated[0].shares).not.toBe(112);
+    expect(updated[0].deposited).toBe(130);
+  });
+
   it("does not fabricate a position when none is cached yet", async () => {
     getQueryData.mockReturnValueOnce(undefined);
 

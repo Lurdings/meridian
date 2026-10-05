@@ -140,15 +140,12 @@ export function useVaultActions() {
         // than `depositAmount` shares — crediting the raw amount would
         // overstate the position for the whole optimistic window.
         // Derive the implied share price from the cached position
-        // (`deposited / shares`) and convert through it, falling back to
-        // 1:1 only when that ratio is unusable (no prior shares or no
-        // prior deposit to derive a price from).
+        // (`deposited / shares`) and convert through it. Inside this
+        // block `sharesBefore` is a positive share count, so the only
+        // case with no price to derive is a position that has no prior
+        // deposit, which falls back to 1:1.
         const impliedSharePrice =
-          Number.isFinite(sharesBefore) &&
-          sharesBefore > 0 &&
-          depositedBefore > 0
-            ? depositedBefore / sharesBefore
-            : 1;
+          depositedBefore > 0 ? depositedBefore / sharesBefore : 1;
         const sharesMinted = depositAmount / impliedSharePrice;
 
         queryClient.setQueryData(
