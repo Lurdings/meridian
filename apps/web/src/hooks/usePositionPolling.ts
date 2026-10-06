@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWalletStore } from "../store/wallet";
 import { api, type ApiPosition } from "../lib/api";
 import { useToastStore } from "../store/toast";
@@ -33,6 +33,7 @@ export function usePositionPolling() {
   const { t } = useTranslation();
   const { publicKey } = useWalletStore();
   const { push } = useToastStore();
+  const queryClient = useQueryClient();
   const [isPollingPositions, setIsPollingPositions] = useState(false);
 
   // Keyed by a per-action id so concurrent deposits/withdrawals each track
@@ -67,8 +68,12 @@ export function usePositionPolling() {
     };
   }, []);
 
+  // Not the display key. `useVaultActions` writes its optimistic estimate to
+  // `["positions", publicKey]`, and the settle check below reads
+  // `query.state.data` back, so sharing the key let that write settle its own
+  // poll. Only `api.getPositions` ever writes this one.
   useQuery<ApiPosition[]>({
-    queryKey: ["positions", publicKey],
+    queryKey: ["positions-poll", publicKey],
     queryFn: async () => {
       if (!publicKey) throw new Error("No public key");
       const data = await api.getPositions(publicKey);
@@ -92,6 +97,7 @@ export function usePositionPolling() {
 
       const isError = query.state.status === "error";
       const data = query.state.data;
+      const dataUpdatedAt = query.state.dataUpdatedAt;
 
       for (const [id, target] of targets) {
         if (Date.now() - target.startedAt > 30_000) {
@@ -109,6 +115,11 @@ export function usePositionPolling() {
         }
         target.failures = 0;
 
+        // A read cached before this action started can't confirm it.
+        if (dataUpdatedAt < target.startedAt) {
+          continue;
+        }
+
         const live = data?.find((p) => p.vaultId === target.vaultId);
         if (!live) {
           // This target's vault isn't in the latest fetch - wait for the
@@ -121,6 +132,11 @@ export function usePositionPolling() {
       }
 
       if (targets.size === 0) {
+        // Hand the confirmed read to the display query, which still holds the
+        // optimistic estimate.
+        if (data) {
+          queryClient.setQueryData(["positions", publicKey], data);
+        }
         setIsPollingPositions(false);
         return false;
       }
