@@ -112,6 +112,18 @@ import { wallet } from "../../lib/wallet";
 import { USDC_ISSUER, MUSDC_ISSUER, APP_NETWORK } from "@meridian/shared";
 
 const KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+/**
+ * `setQueryData` calls that write the positions cache. Pricing a slippage
+ * floor also writes `["vault-state"]` through the same client, so assertions
+ * about the optimistic position have to look past it.
+ */
+function positionWrites(): unknown[][] {
+  return setQueryData.mock.calls.filter(
+    (call) => Array.isArray(call[0]) && call[0][0] === "positions"
+  ) as unknown[][];
+}
+
 // Pulled from the source of truth rather than hardcoded, so these fixtures
 // don't drift out of sync the next time the vault (and its mUSDC issuer) is
 // redeployed, as happened with the previous hardcoded value in #514.
@@ -273,14 +285,12 @@ describe("useVaultActions — deposit", () => {
       );
     });
 
-    expect(setQueryData).toHaveBeenCalledTimes(1);
+    const writes = positionWrites();
+    expect(writes).toHaveLength(1);
 
     // Mirrors the withdraw flow: the cache entry is computed eagerly from the
     // pre-submit snapshot and written back as a value, not an updater fn.
-    const [key, updated] = setQueryData.mock.calls[0] as [
-      unknown,
-      typeof cached,
-    ];
+    const [key, updated] = writes[0] as [unknown, typeof cached];
     expect(key).toEqual(["positions", KEY]);
     expect(updated[0]).toMatchObject({ shares: 110, deposited: 110 });
     // Unrelated positions are passed through untouched.
@@ -308,7 +318,7 @@ describe("useVaultActions — deposit", () => {
       );
     });
 
-    const [, updated] = setQueryData.mock.calls[0] as [unknown, typeof cached];
+    const [, updated] = positionWrites()[0] as [unknown, typeof cached];
     expect(updated[0].shares).toBeCloseTo(100 + 10 / 1.2, 10);
     expect(updated[0].shares).not.toBe(110);
     expect(updated[0].shares).not.toBe(112);
@@ -330,7 +340,7 @@ describe("useVaultActions — deposit", () => {
       );
     });
 
-    expect(setQueryData).not.toHaveBeenCalled();
+    expect(positionWrites()).toHaveLength(0);
   });
 });
 
