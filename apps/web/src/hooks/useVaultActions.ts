@@ -130,20 +130,19 @@ export function useVaultActions() {
       // value for up to staleTime (5 min) after a deposit actually lands.
       queryClient.invalidateQueries({ queryKey: ["vaults"] });
 
-      // Optimistic update: raise the position in-place so the position card
+      // Optimistically raise the position in-place so the position card
       // reflects the deposit immediately instead of waiting for the async
-      // balance/indexer to catch up. Skipped when there is no cached entry to
-      // update — we won't fabricate a position we never had.
+      // balance/indexer to catch up. Skipped when there is no cached entry,
+      // since we won't fabricate a position we never had.
       if (matchedBefore && Number.isFinite(depositAmount)) {
-        // A vault share is not one USDC. Once yield accrues the share
-        // price rises above 1.0, so `depositAmount` USDC mints fewer
-        // than `depositAmount` shares — crediting the raw amount would
-        // overstate the position for the whole optimistic window.
-        // Derive the implied share price from the cached position
-        // (`deposited / shares`) and convert through it. Inside this
-        // block `sharesBefore` is a positive share count, so the only
-        // case with no price to derive is a position that has no prior
-        // deposit, which falls back to 1:1.
+        // A vault share is not one USDC. Once yield accrues the share price
+        // rises above 1.0, so `depositAmount` USDC mints fewer than
+        // `depositAmount` shares, and crediting the raw amount would overstate
+        // the position for the whole optimistic window. Convert through the
+        // implied share price (`deposited / shares`). Inside this block
+        // `sharesBefore` is a positive share count, so the only case with no
+        // price to derive is a position with no prior deposit, which falls
+        // back to 1:1.
         const impliedSharePrice =
           depositedBefore > 0 ? depositedBefore / sharesBefore : 1;
         const sharesMinted = depositAmount / impliedSharePrice;
